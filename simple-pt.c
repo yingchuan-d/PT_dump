@@ -700,7 +700,7 @@ static int simple_pt_init(void)
 	initialized = true;
 	//start变量标识是否开始trace，由sptcmd向parameters写入进行设置
 	if (start)
-		//进行trace
+		//进行trace，这里不会运行
 		restart();
 
 	pr_info("%s\n", start ? "running" : "loaded");
