@@ -1,0 +1,68 @@
+#!/bin/bash
+# simple pt trace a command
+
+usage() {
+	cat <<EOU
+sptcmd [options] cmd -c COMM  Set comm filter for comm (only trace that command)
+EOU
+	exit 1
+}
+
+PATH=$PATH:$(dirname $0)
+unset COMM TRACE
+
+declare -a ARGS
+ARGS=($@)
+
+while getopts "c:" opt ${ARGS[@]} ; do
+	case "$opt" in
+	c) COMM="$OPTARG" ;;
+	@) ;;
+	\?) usage ; exit 1 ;;
+	*) break ;;
+	esac
+done
+shift $((OPTIND - 1))
+
+COMM=${COMM:-}
+TRACE=0
+
+
+if [ "$EUID" -ne 0 ] ; then
+	echo >&2 sptcmd needs to run as root
+	exit 1
+fi
+
+/sbin/insmod simple-pt.ko
+C=/sys/module/simple_pt/parameters
+if [ ! -d $C ] ; then
+	echo >&2 simple-pt driver did not load. please load manually.
+	exit 1
+fi
+
+T=/sys/kernel/debug/tracing
+
+if [ -n "$COMM" ] ; then
+	echo $COMM > $C/comm_filter
+else
+	echo "error"
+fi
+echo $TRACE > $T/events/pttp/msr/enable
+echo 1 > $T/events/pttp/exec_cr3/enable
+echo 1 > $T/events/pttp/mmap_cr3/enable
+echo 1 > $T/events/pttp/process_cr3/enable
+echo > $T/trace
+echo -n > ${PREFIX}.maps
+ptfeature > ${PREFIX}.cpuid
+
+echo 1 > $C/start #开始追踪
+"$@" #运行目标程序
+echo 0 > $C/start #停止追踪
+
+sptdump $PREFIX
+ptfeature > ${PREFIX}.cpuid
+sptsideband.py $T/trace ${PREFIX}.maps ${PREFIX}.cpuid 0 > ${PREFIX}.sideband
+echo "Wrote sideband to ${PREFIX}.sideband"
+
+#我加的，完成后卸载模块
+/sbin/rmmod simple-pt.ko
